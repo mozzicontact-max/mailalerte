@@ -1,0 +1,79 @@
+{
+  "_aide": "Les règles sont lues de haut en bas : la première qui correspond gagne. Une règle correspond si AU MOINS UN de ses critères correspond. Majuscules et accents sont ignorés. Un mot-clé est cherché comme mot entier dans l'objet et l'extrait : pour « annulé » et « annulée », écrire les deux. Voir le README.",
+
+  "settings": {
+    "defaultLevel": "normal",
+    "maxTitleLength": 80,
+    "maxSeen": 200,
+    "clickUrl": "https://wmailetu.univ-artois.fr/"
+  },
+
+  "levels": {
+    "urgent": { "priority": 5, "mode": "immediate" },
+    "normal": { "priority": 3, "mode": "immediate" },
+    "bas": { "priority": 2, "mode": "digest" },
+    "ignorer": { "mode": "ignore" }
+  },
+
+  "rules": [
+    {
+      "name": "Urgent",
+      "level": "urgent",
+      "senders": ["presidence@univ-artois.fr"],
+      "keywords": [
+        "très urgent",
+        "urgent",
+        "urgente",
+        "fermeture",
+        "fermé",
+        "fermée",
+        "fermés",
+        "fermées",
+        "réouverture",
+        "réouvertures",
+        "ouverture",
+        "ouvertures",
+        "grève",
+        "grèves",
+        "annulation",
+        "annulé",
+        "annulée",
+        "annulés",
+        "annulées",
+        "report",
+        "reporté",
+        "reportée",
+        "reportés",
+        "reportées",
+        "rattrapage",
+        "rattrapages",
+        "examen",
+        "examens",
+        "note",
+        "notes"
+      ]
+    },
+    {
+      "name": "Moodle",
+      "level": "normal",
+      "authorContains": ["via Moodle Artois"],
+      "extract": "matiere"
+    },
+    {
+      "name": "Scolarité",
+      "level": "normal",
+      "senderContains": ["scolarite"],
+      "keywords": ["scolarité"]
+    },
+    {
+      "name": "Infos générales",
+      "level": "bas",
+      "subjectPrefixes": ["[etudiant]", "[lef-etu]"]
+    },
+    {
+      "name": "Événements et newsletters",
+      "level": "bas",
+      "keywords": ["événement", "événements", "foire", "foires", "newsletter", "newsletters"]
+    }
+  ]
+}

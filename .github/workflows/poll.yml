@@ -1,0 +1,59 @@
+name: Surveillance de la boîte mail
+
+# Toutes les 5 minutes (au mieux : GitHub peut retarder l'exécution),
+# et lancement manuel possible depuis l'onglet Actions.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Jamais deux passages en même temps (sinon l'état pourrait être écrasé).
+concurrency:
+  group: mailalerte-poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+
+      # État = empreintes des mails déjà vus (aucun texte de mail).
+      # Clé unique par exécution ; on restaure le plus récent via le préfixe.
+      - name: Restaurer l'état
+        uses: actions/cache/restore@v6
+        with:
+          path: .cache/state.json
+          key: mailalerte-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mailalerte-state-
+
+      - name: Lire le flux et notifier
+        id: poll
+        env:
+          UNIV_USER: ${{ secrets.UNIV_USER }}
+          UNIV_PASSWORD: ${{ secrets.UNIV_PASSWORD }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          echo "::add-mask::$UNIV_USER"
+          echo "::add-mask::$UNIV_PASSWORD"
+          echo "::add-mask::$NTFY_TOPIC"
+          node src/main.js
+
+      # Sauvegardé même si l'étape précédente échoue (marqueur « connexion refusée »),
+      # mais seulement si l'état a changé, pour ne pas multiplier les caches.
+      - name: Sauvegarder l'état
+        if: always() && steps.poll.outputs.state_changed == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .cache/state.json
+          key: mailalerte-state-${{ github.run_id }}-${{ github.run_attempt }}

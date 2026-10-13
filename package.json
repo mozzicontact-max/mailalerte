@@ -1,0 +1,14 @@
+{
+  "name": "mailalerte",
+  "version": "1.0.0",
+  "description": "Alertes push pour les mails importants d'une boîte Zimbra, via GitHub Actions et ntfy.sh",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test"
+  }
+}
