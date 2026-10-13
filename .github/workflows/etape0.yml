@@ -1,0 +1,44 @@
+name: Etape 0 - test du flux
+
+# Lancement manuel uniquement (onglet Actions > "Etape 0 - test du flux" > Run workflow).
+# Ce workflow ne journalise QUE le code HTTP et un oui/non "flux RSS reconnu".
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-flux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Appel du flux RSS
+        env:
+          UNIV_USER: ${{ secrets.UNIV_USER }}
+          UNIV_PASSWORD: ${{ secrets.UNIV_PASSWORD }}
+        run: |
+          set +x
+          echo "::add-mask::$UNIV_USER"
+          echo "::add-mask::$UNIV_PASSWORD"
+
+          body="$RUNNER_TEMP/body.tmp"
+          # --silent sans --show-error : aucun message curl dans les journaux.
+          code=$(curl --silent --max-time 15 --output "$body" \
+            --write-out '%{http_code}' \
+            --user "$UNIV_USER:$UNIV_PASSWORD" \
+            'https://wmailetu.univ-artois.fr/home/~/inbox.rss') || true
+          code="${code:-000}"
+
+          # Le corps ne sert qu'à répondre par oui/non : il n'est jamais affiché.
+          rss="non"
+          if [ -f "$body" ] && head -c 4096 "$body" | grep -qi '<rss'; then rss="oui"; fi
+          rm -f "$body"
+
+          echo "Code HTTP : $code   (000 = timeout ou connexion impossible)"
+          echo "Flux RSS reconnu : $rss"
+
+          if [ "$code" != "200" ] || [ "$rss" != "oui" ]; then
+            echo "::error::Flux inaccessible depuis GitHub (voir code ci-dessus)"
+            exit 1
+          fi
