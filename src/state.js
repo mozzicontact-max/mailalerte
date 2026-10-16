@@ -1,5 +1,5 @@
 // État conservé d'une exécution à l'autre (restauré/sauvegardé par actions/cache).
-// Il ne contient que des empreintes (HMAC) et trois indicateurs, jamais de texte de mail.
+// Il ne contient que des empreintes (HMAC) et quelques indicateurs, jamais de texte de mail.
 import { createHmac } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -19,8 +19,12 @@ export function keyFingerprint(key) {
 export function emptyState() {
   // initialized=false : le prochain lancement réussi enregistre tout sans notifier.
   // authAlertSent : la notification « connexion refusée » a déjà été envoyée.
-  // keyId : empreinte de la clé de hachage utilisée pour `seen`.
-  return { version: 1, initialized: false, seen: [], authAlertSent: false, keyId: null };
+  // keyId : empreinte de la clé de hachage utilisée pour `seen` et `fbSeen`.
+  // fbSeen : empreintes déjà traitées par le canal Firebase (liste distincte de `seen`, pour que
+  //   ntfy et Firebase se réessaient chacun de leur côté sans doublon chez l'autre).
+  // firebaseSeeded : Firestore a déjà reçu les mails présents dans le flux (première
+  //   synchronisation faite, sans push).
+  return { version: 1, initialized: false, seen: [], authAlertSent: false, keyId: null, fbSeen: [], firebaseSeeded: false };
 }
 
 export async function loadState(path) {
@@ -32,6 +36,8 @@ export async function loadState(path) {
       authAlertSent: raw.authAlertSent === true,
       keyId: typeof raw.keyId === 'string' ? raw.keyId : null,
       seen: Array.isArray(raw.seen) ? raw.seen.filter((h) => typeof h === 'string') : [],
+      fbSeen: Array.isArray(raw.fbSeen) ? raw.fbSeen.filter((h) => typeof h === 'string') : [],
+      firebaseSeeded: raw.firebaseSeeded === true,
     };
   } catch {
     return emptyState();

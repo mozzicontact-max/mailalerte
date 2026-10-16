@@ -37,3 +37,68 @@ export function fakeNotifier({ failWith } = {}) {
 }
 
 export const noSleep = async () => {};
+
+// Erreur « à la Firebase » dont le texte contient une donnée à ne jamais retrouver dans les journaux.
+export const LEAKY_TEXT = 'DONNEE-SECRETE-titre-et-jeton-xyz';
+export const firebaseFailure = (code) => Object.assign(new Error(LEAKY_TEXT), { code });
+
+// Faux backend Firebase en mémoire (contrat : voir src/notifiers/firebase.js).
+//   fail.<opération> : erreur à lever à chaque appel de cette opération (null = tout va bien)
+//   pushResult(token, message) : résultat du push pour un jeton ({ ok } ou { ok: false, code })
+export function fakeFirebaseBackend({ devices = ['token-1'] } = {}) {
+  const backend = {
+    mails: new Map(), // id -> données
+    status: [], // { mailbox, ok }
+    pushes: [], // messages FCM envoyés avec succès
+    devices: new Set(devices),
+    deletedDevices: [],
+    cleanups: [],
+    calls: [],
+    closed: false,
+    fail: {},
+    removeCount: 0,
+    pushResult: () => ({ ok: true }),
+
+    async createMail(id, data) {
+      backend.calls.push('createMail');
+      if (backend.fail.createMail) throw backend.fail.createMail;
+      if (backend.mails.has(id)) return 'exists';
+      backend.mails.set(id, { ...data });
+      return 'created';
+    },
+    async listDevices() {
+      backend.calls.push('listDevices');
+      if (backend.fail.listDevices) throw backend.fail.listDevices;
+      return [...backend.devices];
+    },
+    async deleteDevice(token) {
+      backend.calls.push('deleteDevice');
+      backend.devices.delete(token);
+      backend.deletedDevices.push(token);
+    },
+    async sendPush(messages) {
+      backend.calls.push('sendPush');
+      if (backend.fail.sendPush) throw backend.fail.sendPush;
+      return messages.map((message) => {
+        const result = backend.pushResult(message.token, message);
+        if (result.ok) backend.pushes.push(message);
+        return result;
+      });
+    },
+    async writeStatus(status) {
+      backend.calls.push('writeStatus');
+      if (backend.fail.writeStatus) throw backend.fail.writeStatus;
+      backend.status.push({ ...status });
+    },
+    async deleteOldMails(olderThan, limit) {
+      backend.calls.push('deleteOldMails');
+      if (backend.fail.deleteOldMails) throw backend.fail.deleteOldMails;
+      backend.cleanups.push({ olderThan, limit });
+      return backend.removeCount;
+    },
+    async close() {
+      backend.closed = true;
+    },
+  };
+  return backend;
+}

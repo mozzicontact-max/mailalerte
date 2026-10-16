@@ -5,3 +5,17 @@ node_modules/
 .cache/
 seen.json
 .DS_Store
+
+# Clés et identifiants : ne jamais les committer (le dépôt est public).
+# Le compte de service Firebase se télécharge sous « <projet>-firebase-adminsdk-xxxxx-<hash>.json ».
+*firebase-adminsdk*.json
+*service-account*.json
+*service_account*.json
+*serviceAccount*.json
+*credentials*.json
+google-services.json
+GoogleService-Info.plist
+*.pem
+*.key
+*.p12
+*.pfx

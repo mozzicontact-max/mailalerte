@@ -24,9 +24,23 @@ jobs:
         with:
           persist-credentials: false
 
+      # Node 22 : firebase-admin 14 l'exige (Node 20 est en fin de vie).
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
+
+      # Dépendances (firebase-admin) : node_modules est mis en cache d'après package-lock.json ;
+      # l'installation n'a lieu qu'en cas de changement. Aucun secret n'est présent à ce stade.
+      - name: Restaurer les dépendances
+        id: deps
+        uses: actions/cache@v6
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Installer les dépendances
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
       # État = empreintes des mails déjà vus (aucun texte de mail).
       # Clé unique par exécution ; on restaure le plus récent via le préfixe.
@@ -43,10 +57,19 @@ jobs:
           UNIV_USER: ${{ secrets.UNIV_USER }}
           UNIV_PASSWORD: ${{ secrets.UNIV_PASSWORD }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          # Firebase (facultatif : sans ces deux secrets, seul ntfy fonctionne).
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_UID: ${{ secrets.FIREBASE_UID }}
+          # Variable (Settings > Secrets and variables > Actions > Variables) : « false » coupe ntfy.
+          NTFY_ENABLED: ${{ vars.NTFY_ENABLED }}
         run: |
           echo "::add-mask::$UNIV_USER"
           echo "::add-mask::$UNIV_PASSWORD"
           echo "::add-mask::$NTFY_TOPIC"
+          if [ -n "$FIREBASE_UID" ]; then echo "::add-mask::$FIREBASE_UID"; fi
+          # Le JSON du compte de service (plusieurs lignes) n'est PAS passé à echo : une commande
+          # add-mask ne masque qu'une ligne. Le programme masque lui-même chacun de ses champs
+          # sensibles, avant tout autre affichage (src/mask.js).
           node src/main.js
 
       # Sauvegardé même si l'étape précédente échoue (marqueur « connexion refusée »),

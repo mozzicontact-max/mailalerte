@@ -3,7 +3,7 @@
 
 const NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
-function decodeEntities(text) {
+export function decodeEntities(text) {
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, entity) => {
     if (entity[0] === '#') {
       const isHex = entity[1].toLowerCase() === 'x';

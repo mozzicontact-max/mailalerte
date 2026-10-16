@@ -4,6 +4,7 @@ Reçois une **notification sur ton téléphone** quand un mail important arrive 
 
 - **GitHub Actions** (gratuit) consulte ta boîte toutes les 5 minutes.
 - **ntfy** (gratuit) envoie la notification sur ton téléphone.
+- **Firebase** (facultatif, gratuit) alimente l'application mobile : les mails sont écrits dans Firestore et un push FCM est envoyé à tes appareils. Voir « Application mobile (Firebase) ».
 - Les mails sont classés automatiquement : urgent, normal, ou simple info regroupée.
 
 Tu n'as pas besoin de savoir programmer. Compte environ 15 minutes.
@@ -102,6 +103,46 @@ Exemple : être alerté immédiatement pour les mails de ton directeur d'études
 
 ---
 
+## Application mobile (Firebase)
+
+En plus de ntfy (ou à sa place), chaque mail peut alimenter l'application mobile **lens-app** via Firebase. Les deux canaux sont **indépendants** : si Firebase échoue, ntfy part quand même, et inversement. Sans les deux secrets Firebase ci-dessous, rien ne change : seul ntfy fonctionne.
+
+### Secrets et variables à créer
+
+| Nom | Type | Valeur |
+|---|---|---|
+| `FIREBASE_SERVICE_ACCOUNT` | secret | le **JSON complet** d'un compte de service Firebase (Console Firebase → Paramètres du projet → Comptes de service → Générer une nouvelle clé privée). Il n'est jamais écrit dans un fichier. |
+| `FIREBASE_UID` | secret | l'identifiant utilisateur affiché dans Réglages de l'application (bouton « Copier ») |
+| `NTFY_ENABLED` | variable (pas un secret) | `false` pour couper ntfy ; vide ou absente = ntfy actif |
+
+Les deux secrets doivent être définis **ensemble** (sinon le journal le signale et le passage est marqué en échec). `NTFY_TOPIC` reste obligatoire même avec `NTFY_ENABLED=false` : il sert de clé aux empreintes anti-doublons.
+
+### Ce qui est écrit dans Firestore
+
+Sous `users/{FIREBASE_UID}` :
+
+- `mails/{id}` : `title`, `sender` (nom sans adresse), `matiere` (ou `null`), `level` (`urgent`, `normal` ou `digest`), `preview` (description du flux sans HTML, 200 caractères au plus), `receivedAt` (date du mail), `read` (`false`). L'`id` est le début (32 caractères) de l'empreinte anti-doublons. Un mail déjà présent n'est **jamais réécrit** : l'état « lu » est conservé. `level` vaut `digest` pour les règles en résumé, `urgent` pour une priorité de 5, `normal` sinon. Les mails au niveau `ignorer` ne sont pas écrits.
+- `status/current` : `mailbox` (adresse masquée, `p***@univ-artois.fr`), `lastCheckAt` (heure du serveur) et `ok`. Écrit à **chaque** passage, même sans nouveau mail ; si la lecture du flux échoue, `ok` vaut `false` et `lastCheckAt` est quand même mis à jour.
+- `devices/{jeton}` : lu pour envoyer les push. Un jeton déclaré invalide ou non enregistré par FCM est supprimé.
+
+### Push
+
+Un push FCM par appareil, avec le titre et le texte de la notification ntfy (mêmes règles : immédiat pour urgent et normal, **un seul** résumé pour le niveau bas), `data.mailId`, priorité Android haute et le canal `mails_urgent_v1`, `mails_normal_v1` ou `mails_digest_v1`. Le push du résumé ouvre le mail le plus récent du lot.
+
+### Première synchronisation
+
+Au premier passage avec Firebase (ou après un changement de `NTFY_TOPIC`), les mails présents dans le flux sont écrits dans Firestore **sans aucun push**. Ils apparaissent non lus dans l'application.
+
+### Nettoyage
+
+À chaque passage, les mails reçus il y a plus de 30 jours sont supprimés de Firestore (100 au plus par passage).
+
+### Dépendance et cache
+
+`firebase-admin` (Node 22 requis) est installé avec `npm ci` ; `node_modules` est mis en cache d'après `package-lock.json`, donc l'installation n'a lieu que lorsque la dépendance change. L'état anti-doublons et la concurrence sont inchangés ; le cache d'état contient en plus une liste d'empreintes propre à Firebase (`fbSeen`) et un drapeau (`firebaseSeeded`).
+
+---
+
 ## Scénario de test
 
 Il te faut deux boîtes mail : la tienne (celle qui est surveillée) et une autre (celle d'un ami ou un second compte).
@@ -132,6 +173,9 @@ Sur un dépôt public, GitHub **désactive automatiquement les tâches planifié
 ### Les objets de tes mails passent par ntfy.sh
 Pour t'envoyer une notification, le programme transmet **l'objet du mail** (et la matière Moodle, ou la liste des objets pour les résumés) au service **ntfy.sh**. Ces informations transitent par ses serveurs, protégées uniquement par le nom de ton sujet (c'est pourquoi il doit être long et aléatoire). Le contenu du mail et l'adresse de l'expéditeur ne sont jamais envoyés. Si cela ne te convient pas, ntfy peut être hébergé par toi-même, ou tu peux utiliser des règles plus strictes pour limiter les mails notifiés.
 
+### Ce que Firebase contient en plus
+Avec Firebase activé, **l'objet, le nom de l'expéditeur et un extrait de 200 caractères** de chaque mail sont écrits dans **ton** projet Firestore (jamais l'adresse de l'expéditeur ni le corps complet). Ils restent dans ton projet, protégés par ses règles de sécurité, et sont supprimés après 30 jours. Les push FCM passent par les serveurs de Google.
+
 ### Autres points
 - **Le flux ne montre que les 8 derniers mails environ.** Si plus de 8 mails arrivent entre deux passages, les plus anciens sont ratés.
 - **Seule la boîte de réception est surveillée.** Un mail rangé directement dans un autre dossier par un filtre n'est pas vu.
@@ -152,11 +196,27 @@ Pour t'envoyer une notification, le programme transmet **l'objet du mail** (et l
 | Aucune notification reçue | Vérifie que `NTFY_TOPIC` est **identique** au sujet de l'application, et que l'application ntfy a le droit de t'envoyer des notifications. |
 | Plus aucune exécution | Voir « mise en pause après 60 jours ». |
 
+### Messages Firebase dans le journal d'une exécution
+
+Le journal ne contient jamais le texte d'une erreur de Firebase (il pourrait contenir des données), seulement une phrase fixe. Format : `Firebase : échec (<cause>) pendant <étape>.`
+
+| Cause affichée | Ce que ça veut dire | Que faire |
+|---|---|---|
+| `identifiants illisibles ou rejetés, vérifiez FIREBASE_SERVICE_ACCOUNT` | Le JSON est incomplet, tronqué ou ce n'est pas un compte de service | Recopier le fichier JSON **en entier** dans le secret |
+| `accès refusé, vérifiez les droits du compte de service et l’activation des API` | Clé révoquée ou d'un autre projet, rôle manquant, ou API non activée | Régénérer la clé ; rôle « Utilisateur Cloud Datastore » ; activer l'API Cloud Firestore et l'API Firebase Cloud Messaging |
+| `base Firestore introuvable, a-t-elle été créée ?` | Aucune base Firestore dans le projet | Console Firebase → Firestore Database → Créer une base |
+| `service indisponible ou quota dépassé`, `délai dépassé`, `réseau injoignable` | Panne passagère côté Google ou réseau | Rien : le passage suivant réessaie, les mails ne sont pas perdus |
+| `données refusées par Firebase` | Un document ou un push a été rejeté | Rare ; ce mail est abandonné pour Firebase (ntfy n'est pas affecté) |
+| `module firebase-admin introuvable…` | L'installation des dépendances a échoué | Relancer ; vérifier l'étape « Installer les dépendances » |
+| `erreur inattendue` | Cas non prévu | Relancer ; si cela persiste, regarder l'étape qui échoue |
+
+Autres lignes possibles : `Firebase : configuration incomplète (FIREBASE_SERVICE_ACCOUNT et FIREBASE_UID doivent être définis ensemble)`, `Firebase : FIREBASE_UID invalide`, `Firebase : service injoignable, le reste est reporté au prochain passage`, `Firebase : première synchronisation, N mail(s) écrit(s), 0 notification`, `Firebase : nouveaux : N. Mails écrits : N. Push envoyés : N.` (avec, si besoin, `Push non remis`, `Appareils supprimés` et `Échecs`), `Firebase : N ancien(s) mail(s) supprimé(s)` et `ntfy désactivé (NTFY_ENABLED=false)`. Une erreur Firebase rend le passage « en échec » (croix rouge), même si ntfy a bien fonctionné.
+
 ---
 
 ## Pour les curieux
 
-- Le code est en Node.js 20, **sans aucune dépendance**. Tests : `npm test`.
-- La lecture du flux et le classement (`src/rss.js`, `src/classify.js`, `src/feed.js`, `src/state.js`) sont **indépendants** de la façon de notifier. Le canal ntfy est isolé dans `src/notifiers/ntfy.js` : ajouter un autre canal revient à écrire un fichier qui sait envoyer `{ title, message, priority, clickUrl }`.
+- Le code est en Node.js 22 ; la seule dépendance est `firebase-admin` (chargée seulement si Firebase est configuré). Tests : `npm ci` puis `npm test` (Firebase est simulé, aucun réseau).
+- La lecture du flux et le classement (`src/rss.js`, `src/classify.js`, `src/feed.js`, `src/state.js`) sont **indépendants** de la façon de notifier. Le canal ntfy est isolé dans `src/notifiers/ntfy.js` : ajouter un autre canal revient à écrire un fichier qui sait envoyer `{ title, message, priority, clickUrl }`. Le canal Firebase (`src/notifiers/firebase.js`) reçoit en plus le mail complet (second argument de `send`) ; ses appels réseau passent par `src/notifiers/firebase-admin.js`.
 - Mémoire anti-doublons : empreintes HMAC-SHA-256 de `expéditeur|date|objet` (200 au maximum), calculées avec `NTFY_TOPIC` comme clé, conservées avec `actions/cache`. Aucun texte de mail n'est stocké, et sans la clé on ne peut pas vérifier qu'un mail donné figure dans la liste.
 - Journaux : uniquement le code HTTP, des compteurs et des catégories d'erreur. Aucun objet, extrait, expéditeur, URL avec identifiants ni en-tête d'authentification.
