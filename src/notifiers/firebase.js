@@ -3,8 +3,9 @@
 //
 // Contrat (extension de celui de ntfy.js) :
 //   send(message, context)
-//     message = { title, message, priority, clickUrl } (neutre, voir message.js)
+//     message = { title, message, priority, clickUrl } (neutre, voir message.js ; sert à ntfy)
 //     context = { type: 'mail', entry } ou { type: 'digest', entries }
+//   Le texte du push FCM n'est PAS celui de ntfy : il est composé ici à partir du mail (voir pushTextFor).
 //   - résout si le mail est écrit ET le push traité ;
 //   - sinon lève une FirebaseError avec `retryable`.
 //
@@ -92,7 +93,18 @@ export function classifyError(err) {
 
 // ---------------------------------------------------------------- mise en forme
 
-const LEVEL_CHANNELS = { urgent: 'mails_urgent_v1', normal: 'mails_normal_v1', digest: 'mails_digest_v1' };
+// Canaux de l'application en version 2 (voix personnalisées). Les v1 existent encore côté application
+// mais ne sont plus visés par ce programme.
+const LEVEL_CHANNELS = { urgent: 'mails_urgent_v2', normal: 'mails_normal_v2', digest: 'mails_digest_v2' };
+
+// Apparence des notifications affichées par Android (ressources de l'application : voir lens-app).
+export const PUSH_ICON = 'ic_stat_mailalerte';
+export const URGENT_COLOR = '#D8453F';
+// Un push non remis au bout de 6 h est abandonné : un vieux mail ne doit pas sonner au retour d'un
+// téléphone resté éteint. FCM attend une durée en millisecondes.
+export const PUSH_TTL_MS = 6 * 60 * 60 * 1000;
+export const PUSH_TITLE_MAX = 80;
+export const PUSH_BODY_MAX = 100;
 
 // 'digest' si la règle est en résumé ; 'urgent' si la priorité est maximale (5) ; sinon 'normal'.
 export function firebaseLevel(classification) {
@@ -141,6 +153,27 @@ export function maskMailbox(user) {
 
 // Identifiant du document : 32 premiers caractères de l'empreinte HMAC déjà utilisée contre les doublons.
 export const mailId = (hash) => hash.slice(0, 32);
+
+// Texte d'un push pour un mail : titre = sujet (80 caractères, « … » si coupé),
+// texte = « expéditeur : aperçu » (100 caractères, « … » si coupé).
+export function pushTextFor({ item }) {
+  const detail = [cleanSender(item.author), previewOf(item.excerpt)].filter((part) => part !== '').join(' : ');
+  return { title: truncate(item.title || '(sans objet)', PUSH_TITLE_MAX), body: truncate(detail, PUSH_BODY_MAX) };
+}
+
+// Texte du résumé : « N nouveaux mails » et la liste des expéditeurs (le plus récent d'abord, sans doublon).
+export function digestPushText(entries) {
+  const count = entries.length;
+  const senders = [];
+  for (const { item } of [...entries].reverse()) {
+    const name = cleanSender(item.author);
+    if (name !== '' && !senders.includes(name)) senders.push(name);
+  }
+  return {
+    title: count === 1 ? '1 nouveau mail' : `${count} nouveaux mails`,
+    body: truncate(senders.join(', '), PUSH_BODY_MAX),
+  };
+}
 
 export function mailDocument({ hash, item, classification, time }, now = new Date()) {
   return {
@@ -212,14 +245,23 @@ export function createFirebaseNotifier({ backend, sleep = defaultSleep, now = ()
     return tokens;
   }
 
-  async function push(message, id, level) {
+  async function push({ title, body }, id, level) {
     const targets = [...(await deviceTokens())];
     if (targets.length === 0) return;
     const build = (token) => ({
       token,
-      notification: { title: message.title, body: message.message },
+      notification: { title, body },
       data: { mailId: id },
-      android: { priority: 'high', notification: { channelId: channelIdFor(level) } },
+      android: {
+        // Haute priorité pour ce qui doit sonner (urgent, normal) ; le résumé, silencieux, peut attendre.
+        priority: level === 'digest' ? 'normal' : 'high',
+        ttl: PUSH_TTL_MS,
+        notification: {
+          channelId: channelIdFor(level),
+          icon: PUSH_ICON,
+          ...(level === 'urgent' ? { color: URGENT_COLOR } : {}),
+        },
+      },
     });
 
     let pending = targets;
@@ -274,14 +316,14 @@ export function createFirebaseNotifier({ backend, sleep = defaultSleep, now = ()
       return down;
     },
 
-    async send(message, context) {
+    async send(_message, context) {
       if (context?.type === 'mail') {
         const id = await writeMail(context.entry);
-        await push(message, id, firebaseLevel(context.entry.classification));
+        await push(pushTextFor(context.entry), id, firebaseLevel(context.entry.classification));
       } else if (context?.type === 'digest') {
         let lastId;
         for (const entry of context.entries) lastId = await writeMail(entry); // du plus ancien au plus récent
-        await push(message, lastId, 'digest');
+        await push(digestPushText(context.entries), lastId, 'digest');
       }
     },
 

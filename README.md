@@ -127,7 +127,17 @@ Sous `users/{FIREBASE_UID}` :
 
 ### Push
 
-Un push FCM par appareil, avec le titre et le texte de la notification ntfy (mêmes règles : immédiat pour urgent et normal, **un seul** résumé pour le niveau bas), `data.mailId`, priorité Android haute et le canal `mails_urgent_v1`, `mails_normal_v1` ou `mails_digest_v1`. Le push du résumé ouvre le mail le plus récent du lot.
+Un push FCM par appareil, avec les mêmes règles d'envoi que ntfy (immédiat pour urgent et normal, **un seul** résumé pour le niveau bas). Les messages **ntfy ne changent pas** ; le texte du push FCM est composé à part :
+
+| | Urgent et normal | Résumé (niveau bas) |
+|---|---|---|
+| **Titre** | le sujet nettoyé, 80 caractères au plus (« … » s'il est coupé) | `N nouveaux mails` (`1 nouveau mail` s'il n'y en a qu'un) |
+| **Texte** | `<expéditeur> : <aperçu>`, 100 caractères au plus (« … » s'il est coupé) | les expéditeurs séparés par des virgules (le plus récent d'abord, sans doublon), 100 caractères au plus |
+| **Canal Android** | `mails_urgent_v2` / `mails_normal_v2` | `mails_digest_v2` |
+| **Priorité FCM** | haute | normale (le résumé est silencieux) |
+| **Couleur** | `#D8453F` (rouge) pour l'urgent seulement | aucune |
+
+Tous les push portent l'icône `ic_stat_mailalerte`, `data.mailId` (le résumé ouvre le mail le plus récent du lot) et une **durée de vie de 6 heures** : un push non remis après ce délai est abandonné, pour qu'un vieux mail ne sonne pas au retour d'un téléphone resté éteint. Les canaux `_v2` (voix personnalisées), l'icône et la couleur sont des ressources de l'application lens-app ; les anciens canaux `_v1` ne sont plus visés.
 
 ### Première synchronisation
 

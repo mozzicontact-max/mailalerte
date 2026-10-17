@@ -134,9 +134,10 @@ test('mail urgent : ntfy ET Firebase (document + push), une seule fois', async (
   assert.equal(backend.pushes.length, 1);
   const [push] = backend.pushes;
   assert.equal(push.notification.title, URGENT.title);
-  assert.equal(push.notification.body, 'Urgent');
+  assert.equal(push.notification.body, 'Bob Secret : extrait secret-B'); // « expéditeur : aperçu », sans HTML
   assert.equal(push.android.priority, 'high');
-  assert.equal(push.android.notification.channelId, 'mails_urgent_v1');
+  assert.equal(push.android.ttl, 6 * 60 * 60 * 1000);
+  assert.deepEqual(push.android.notification, { channelId: 'mails_urgent_v2', icon: 'ic_stat_mailalerte', color: '#D8453F' });
   assert.match(push.data.mailId, /^[0-9a-f]{32}$/);
 
   const doc = backend.mails.get(push.data.mailId);
@@ -155,15 +156,18 @@ test('mail urgent : ntfy ET Firebase (document + push), une seule fois', async (
 });
 
 test('mail Moodle : matière et expéditeur nettoyé dans le document', async () => {
+  const notifier = fakeNotifier();
   const backend = fakeFirebaseBackend();
-  await go(feedOf(OLD), fakeNotifier(), backend);
-  await go(feedOf(MOODLE, OLD), fakeNotifier(), backend);
+  await go(feedOf(OLD), notifier, backend);
+  await go(feedOf(MOODLE, OLD), notifier, backend);
   const doc = [...backend.mails.values()].find((m) => m.matiere);
   assert.equal(doc.matiere, 'Mathématiques');
   assert.equal(doc.sender, 'Camille Exemple');
   assert.equal(doc.level, 'normal');
-  assert.equal(backend.pushes[0].notification.body, 'Moodle · Mathématiques');
-  assert.equal(backend.pushes[0].android.notification.channelId, 'mails_normal_v1');
+  assert.equal(backend.pushes[0].notification.body, 'Camille Exemple : Mathématiques -> Forums -> Annonces -> Sujet de TD');
+  assert.deepEqual(backend.pushes[0].android.notification, { channelId: 'mails_normal_v2', icon: 'ic_stat_mailalerte' });
+  // ntfy, lui, garde son texte d'origine
+  assert.equal(notifier.sent[0].message, 'Moodle · Mathématiques');
 });
 
 test('mêmes règles d’envoi que ntfy : un urgent, un normal, deux infos -> 2 push + 1 résumé', async () => {
@@ -175,9 +179,15 @@ test('mêmes règles d’envoi que ntfy : un urgent, un normal, deux infos -> 2 
   assert.deepEqual(notifier.sent.map((m) => m.priority), [5, 3, 2]);
   assert.deepEqual(
     backend.pushes.map((p) => p.android.notification.channelId),
-    ['mails_urgent_v1', 'mails_normal_v1', 'mails_digest_v1'],
+    ['mails_urgent_v2', 'mails_normal_v2', 'mails_digest_v2'],
   );
-  assert.equal(backend.pushes[2].notification.title, 'Infos : 2 nouveaux messages');
+  assert.deepEqual(backend.pushes.map((p) => p.android.priority), ['high', 'high', 'normal']);
+  assert.deepEqual(backend.pushes.map((p) => 'color' in p.android.notification), [true, false, false], 'rouge : urgent seulement');
+  assert.ok(backend.pushes.every((p) => p.android.ttl === 21600000 && p.android.notification.icon === 'ic_stat_mailalerte'));
+  // résumé : « N nouveaux mails » et les expéditeurs, le plus récent d'abord (INFO2 = Y, INFO1 = X)
+  assert.deepEqual(backend.pushes[2].notification, { title: '2 nouveaux mails', body: 'Y, X' });
+  // ntfy est inchangé : même titre de résumé qu'avant
+  assert.equal(notifier.sent[2].title, 'Infos : 2 nouveaux messages');
   assert.equal(backend.mails.size, 5); // 1 ancien + 4 nouveaux
   assert.equal([...backend.mails.values()].filter((m) => m.level === 'digest').length, 2);
   // le résumé ouvre le mail le plus récent des deux infos (INFO2, 11:11)

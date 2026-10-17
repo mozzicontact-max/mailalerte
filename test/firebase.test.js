@@ -4,11 +4,14 @@ import {
   channelIdFor,
   cleanSender,
   createFirebaseNotifier,
+  digestPushText,
   firebaseLevel,
   FirebaseError,
   mailDocument,
   maskMailbox,
   previewOf,
+  PUSH_TTL_MS,
+  pushTextFor,
 } from '../src/notifiers/firebase.js';
 import { LEAKY_TEXT, fakeFirebaseBackend, firebaseFailure, noSleep } from './helpers.js';
 
@@ -66,7 +69,7 @@ test('niveau Firebase : digest, urgent (priorité 5) ou normal', () => {
   assert.equal(firebaseLevel(classification({ priority: 5 })), 'urgent');
   assert.equal(firebaseLevel(classification({ priority: 3 })), 'normal');
   assert.equal(firebaseLevel(classification({ priority: undefined })), 'normal');
-  assert.deepEqual(['urgent', 'normal', 'digest'].map(channelIdFor), ['mails_urgent_v1', 'mails_normal_v1', 'mails_digest_v1']);
+  assert.deepEqual(['urgent', 'normal', 'digest'].map(channelIdFor), ['mails_urgent_v2', 'mails_normal_v2', 'mails_digest_v2']);
 });
 
 test('document de mail : exactement les champs attendus par l’application', () => {
@@ -101,33 +104,141 @@ test('mail : document écrit puis push FCM complet', async () => {
   assert.equal(backend.pushes.length, 2);
   assert.deepEqual(backend.pushes[0], {
     token: 'token-1',
-    notification: { title: 'Sujet de test', body: 'Autre mail' },
+    notification: { title: 'Sujet de test', body: 'Dana Exemple : Un extrait' },
     data: { mailId: HASH.slice(0, 32) },
-    android: { priority: 'high', notification: { channelId: 'mails_urgent_v1' } },
+    android: {
+      priority: 'high',
+      ttl: 6 * 60 * 60 * 1000,
+      notification: { channelId: 'mails_urgent_v2', icon: 'ic_stat_mailalerte', color: '#D8453F' },
+    },
   });
   assert.deepEqual(backend.pushes.map((p) => p.token), ['token-1', 'token-2']);
   assert.equal(notifier.stats.written, 1);
   assert.equal(notifier.stats.pushed, 2);
 });
 
-test('canal du push selon le niveau : normal -> mails_normal_v1', async () => {
+test('push normal : canal v2, haute priorité, icône, durée de vie, et PAS de couleur rouge', async () => {
   const { backend, notifier } = setup();
   await notifier.send(message, { type: 'mail', entry: entry() });
-  assert.equal(backend.pushes[0].android.notification.channelId, 'mails_normal_v1');
+  const { android } = backend.pushes[0];
+  assert.equal(android.notification.channelId, 'mails_normal_v2');
+  assert.equal(android.notification.icon, 'ic_stat_mailalerte');
+  assert.ok(!('color' in android.notification), 'le rouge est réservé au niveau urgent');
+  assert.equal(android.priority, 'high');
+  assert.equal(android.ttl, 21600000);
+});
+
+test('push du résumé : canal v2 « résumé », priorité normale (silencieux), icône, durée de vie, sans couleur', async () => {
+  const { backend, notifier } = setup();
+  await notifier.send(message, { type: 'digest', entries: [entry({ classification: classification({ mode: 'digest', priority: 2 }) })] });
+  const { android } = backend.pushes[0];
+  assert.equal(android.notification.channelId, 'mails_digest_v2');
+  assert.equal(android.notification.icon, 'ic_stat_mailalerte');
+  assert.ok(!('color' in android.notification));
+  assert.equal(android.priority, 'normal');
+  assert.equal(android.ttl, 21600000);
+});
+
+test('la durée de vie est de 6 heures exactement, en millisecondes (unité attendue par FCM)', () => {
+  assert.equal(PUSH_TTL_MS, 6 * 60 * 60 * 1000);
+  assert.equal(PUSH_TTL_MS, 21600000);
+});
+
+test('le contenu du push est celui de FCM, pas celui de ntfy (le message neutre de ntfy est ignoré)', async () => {
+  const { backend, notifier } = setup();
+  await notifier.send({ title: 'TITRE NTFY', message: 'TEXTE NTFY', priority: 3, clickUrl: '' }, { type: 'mail', entry: entry() });
+  assert.deepEqual(backend.pushes[0].notification, { title: 'Sujet de test', body: 'Dana Exemple : Un extrait' });
+});
+
+// ------------------------------------------------------------ texte des push
+
+test('push d’un mail : titre = sujet, texte = « expéditeur : aperçu »', () => {
+  assert.deepEqual(pushTextFor(entry()), { title: 'Sujet de test', body: 'Dana Exemple : Un extrait' });
+});
+
+test('titre du push : 80 caractères au plus, avec points de suspension s’il est coupé', () => {
+  const exact = 'a'.repeat(80);
+  assert.equal(pushTextFor(entry({ item: { ...entry().item, title: exact } })).title, exact, 'pile 80 : rien n’est coupé');
+
+  const cut = pushTextFor(entry({ item: { ...entry().item, title: 'b'.repeat(200) } })).title;
+  assert.equal(Array.from(cut).length, 80);
+  assert.ok(cut.endsWith('…'));
+
+  const accents = pushTextFor(entry({ item: { ...entry().item, title: 'é'.repeat(120) } })).title;
+  assert.equal(Array.from(accents).length, 80, 'les caractères accentués comptent pour un');
+});
+
+test('titre du push : espaces nettoyés, « (sans objet) » si vide', () => {
+  assert.equal(pushTextFor(entry({ item: { ...entry().item, title: '  Cours   annulé \n demain ' } })).title, 'Cours annulé demain');
+  assert.equal(pushTextFor(entry({ item: { ...entry().item, title: '' } })).title, '(sans objet)');
+});
+
+test('texte du push : 100 caractères au plus, avec points de suspension s’il est coupé', () => {
+  const long = pushTextFor(entry({ item: { ...entry().item, excerpt: 'mot '.repeat(100) } })).body;
+  // 100 au plus : une espace juste avant la coupure est retirée, donc 99 est possible
+  assert.ok(Array.from(long).length <= 100 && Array.from(long).length >= 99, `longueur ${Array.from(long).length}`);
+  assert.ok(long.startsWith('Dana Exemple : mot'));
+  assert.ok(long.endsWith('…'));
+
+  const short = pushTextFor(entry({ item: { ...entry().item, excerpt: 'x'.repeat(100 - 'Dana Exemple : '.length) } })).body;
+  assert.equal(Array.from(short).length, 100, 'pile 100 : rien n’est coupé');
+  assert.ok(!short.endsWith('…'));
+});
+
+test('texte du push : l’aperçu est sans HTML, et un expéditeur ou un aperçu absent ne laisse pas de « : » seul', () => {
+  const body = (author, excerpt) => pushTextFor(entry({ item: { ...entry().item, author, excerpt } })).body;
+  assert.equal(body('Dana Exemple <dana@example.org>', '<p>Bonjour&nbsp;<b>tous</b></p>'), 'Dana Exemple : Bonjour tous');
+  assert.equal(body('Dana Exemple <dana@example.org>', ''), 'Dana Exemple');
+  assert.equal(body('', 'Un extrait'), 'Un extrait');
+  assert.equal(body('', ''), '');
+});
+
+test('texte du push : l’expéditeur est nettoyé comme dans l’application (sans adresse ni « via … »)', () => {
+  const body = pushTextFor(
+    entry({ item: { ...entry().item, author: '"Camille Exemple (via Moodle Artois)" <ne-pas-repondre@moodle.example.org>', excerpt: 'Annonce' } }),
+  ).body;
+  assert.equal(body, 'Camille Exemple : Annonce');
+  assert.ok(!body.includes('@') && !body.includes('Moodle Artois'));
+});
+
+test('résumé : « N nouveaux mails » et les expéditeurs séparés par des virgules (récent d’abord, sans doublon)', () => {
+  const from = (author) => entry({ item: { ...entry().item, author } });
+  const text = digestPushText([from('Alice <alice@example.org>'), from('Bob <bob@example.org>'), from('Alice <alice@example.org>')]);
+  assert.equal(text.title, '3 nouveaux mails');
+  assert.equal(text.body, 'Alice, Bob');
+  assert.equal(digestPushText([from('Alice <alice@example.org>'), from('Bob <bob@example.org>')]).body, 'Bob, Alice');
+});
+
+test('résumé : un seul mail -> « 1 nouveau mail » (accord au singulier)', () => {
+  assert.equal(digestPushText([entry()]).title, '1 nouveau mail');
+});
+
+test('résumé : liste d’expéditeurs coupée à 100 caractères avec points de suspension', () => {
+  const entries = Array.from({ length: 30 }, (_, i) => entry({ item: { ...entry().item, author: `Expéditeur Numéro${i} <e${i}@example.org>` } }));
+  const { title, body } = digestPushText(entries);
+  assert.equal(title, '30 nouveaux mails');
+  assert.equal(Array.from(body).length, 100);
+  assert.ok(body.endsWith('…'));
+  assert.ok(body.startsWith('Expéditeur Numéro29, Expéditeur Numéro28'));
+});
+
+test('résumé : expéditeurs inconnus ignorés', () => {
+  assert.equal(digestPushText([entry({ item: { ...entry().item, author: '' } })]).body, '');
 });
 
 test('résumé : un document par mail, un seul push, sur le canal « résumé », ouvrant le mail le plus récent', async () => {
   const { backend, notifier } = setup();
-  const older = entry({ hash: '11'.repeat(32), classification: classification({ mode: 'digest', priority: 2 }) });
-  const newer = entry({ hash: '22'.repeat(32), classification: classification({ mode: 'digest', priority: 2 }) });
-  await notifier.send({ title: 'Infos : 2 nouveaux messages', message: '• a\n• b', priority: 2, clickUrl: '' }, { type: 'digest', entries: [older, newer] });
+  const digest = classification({ mode: 'digest', priority: 2 });
+  const older = entry({ hash: '11'.repeat(32), classification: digest, item: { ...entry().item, author: 'Alice <alice@example.org>' } });
+  const newer = entry({ hash: '22'.repeat(32), classification: digest, item: { ...entry().item, author: 'Bob <bob@example.org>' } });
+  await notifier.send(message, { type: 'digest', entries: [older, newer] });
 
   assert.equal(backend.mails.size, 2);
   assert.equal(backend.mails.get('11'.repeat(16)).level, 'digest');
   assert.equal(backend.pushes.length, 1);
   assert.equal(backend.pushes[0].data.mailId, '22'.repeat(16));
-  assert.equal(backend.pushes[0].android.notification.channelId, 'mails_digest_v1');
-  assert.equal(backend.pushes[0].notification.title, 'Infos : 2 nouveaux messages');
+  assert.equal(backend.pushes[0].android.notification.channelId, 'mails_digest_v2');
+  assert.deepEqual(backend.pushes[0].notification, { title: '2 nouveaux mails', body: 'Bob, Alice' });
 });
 
 test('document déjà présent : jamais réécrit (l’état « lu » est conservé), le push part quand même', async () => {
