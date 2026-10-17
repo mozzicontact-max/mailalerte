@@ -93,9 +93,10 @@ export function classifyError(err) {
 
 // ---------------------------------------------------------------- mise en forme
 
-// Canaux de l'application en version 2 (voix personnalisées). Les v1 existent encore côté application
-// mais ne sont plus visés par ce programme.
-const LEVEL_CHANNELS = { urgent: 'mails_urgent_v2', normal: 'mails_normal_v2', digest: 'mails_digest_v2' };
+// Canaux de l'application en version 3 (un seul son pour tous les niveaux ; l'urgent suit le volume de
+// l'alarme). Les anciens canaux v1 et v2 sont supprimés par l'application : s'ils étaient visés, le push
+// arriverait sur le canal par défaut (mails_normal_v3).
+const LEVEL_CHANNELS = { urgent: 'mails_urgent_v3', normal: 'mails_normal_v3', digest: 'mails_digest_v3' };
 
 // Apparence des notifications affichées par Android (ressources de l'application : voir lens-app).
 export const PUSH_ICON = 'ic_stat_mailalerte';

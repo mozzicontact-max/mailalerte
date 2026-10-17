@@ -133,11 +133,11 @@ Un push FCM par appareil, avec les mêmes règles d'envoi que ntfy (immédiat po
 |---|---|---|
 | **Titre** | le sujet nettoyé, 80 caractères au plus (« … » s'il est coupé) | `N nouveaux mails` (`1 nouveau mail` s'il n'y en a qu'un) |
 | **Texte** | `<expéditeur> : <aperçu>`, 100 caractères au plus (« … » s'il est coupé) | les expéditeurs séparés par des virgules (le plus récent d'abord, sans doublon), 100 caractères au plus |
-| **Canal Android** | `mails_urgent_v2` / `mails_normal_v2` | `mails_digest_v2` |
+| **Canal Android** | `mails_urgent_v3` / `mails_normal_v3` | `mails_digest_v3` |
 | **Priorité FCM** | haute | normale (le résumé est silencieux) |
 | **Couleur** | `#D8453F` (rouge) pour l'urgent seulement | aucune |
 
-Tous les push portent l'icône `ic_stat_mailalerte`, `data.mailId` (le résumé ouvre le mail le plus récent du lot) et une **durée de vie de 6 heures** : un push non remis après ce délai est abandonné, pour qu'un vieux mail ne sonne pas au retour d'un téléphone resté éteint. Les canaux `_v2` (voix personnalisées), l'icône et la couleur sont des ressources de l'application lens-app ; les anciens canaux `_v1` ne sont plus visés.
+Tous les push portent l'icône `ic_stat_mailalerte`, `data.mailId` (le résumé ouvre le mail le plus récent du lot) et une **durée de vie de 6 heures** : un push non remis après ce délai est abandonné, pour qu'un vieux mail ne sonne pas au retour d'un téléphone resté éteint. Les canaux `_v3` (même son pour tous les niveaux ; l'urgent suit le volume de l'alarme), l'icône et la couleur sont des ressources de l'application lens-app. Les anciens canaux `_v1` et `_v2` sont supprimés par l'application ; un push qui viserait un canal inexistant arriverait sur `mails_normal_v3`.
 
 ### Première synchronisation
 

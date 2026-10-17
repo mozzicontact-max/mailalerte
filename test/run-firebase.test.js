@@ -137,7 +137,7 @@ test('mail urgent : ntfy ET Firebase (document + push), une seule fois', async (
   assert.equal(push.notification.body, 'Bob Secret : extrait secret-B'); // « expéditeur : aperçu », sans HTML
   assert.equal(push.android.priority, 'high');
   assert.equal(push.android.ttl, 6 * 60 * 60 * 1000);
-  assert.deepEqual(push.android.notification, { channelId: 'mails_urgent_v2', icon: 'ic_stat_mailalerte', color: '#D8453F' });
+  assert.deepEqual(push.android.notification, { channelId: 'mails_urgent_v3', icon: 'ic_stat_mailalerte', color: '#D8453F' });
   assert.match(push.data.mailId, /^[0-9a-f]{32}$/);
 
   const doc = backend.mails.get(push.data.mailId);
@@ -165,7 +165,7 @@ test('mail Moodle : matière et expéditeur nettoyé dans le document', async ()
   assert.equal(doc.sender, 'Camille Exemple');
   assert.equal(doc.level, 'normal');
   assert.equal(backend.pushes[0].notification.body, 'Camille Exemple : Mathématiques -> Forums -> Annonces -> Sujet de TD');
-  assert.deepEqual(backend.pushes[0].android.notification, { channelId: 'mails_normal_v2', icon: 'ic_stat_mailalerte' });
+  assert.deepEqual(backend.pushes[0].android.notification, { channelId: 'mails_normal_v3', icon: 'ic_stat_mailalerte' });
   // ntfy, lui, garde son texte d'origine
   assert.equal(notifier.sent[0].message, 'Moodle · Mathématiques');
 });
@@ -179,7 +179,7 @@ test('mêmes règles d’envoi que ntfy : un urgent, un normal, deux infos -> 2 
   assert.deepEqual(notifier.sent.map((m) => m.priority), [5, 3, 2]);
   assert.deepEqual(
     backend.pushes.map((p) => p.android.notification.channelId),
-    ['mails_urgent_v2', 'mails_normal_v2', 'mails_digest_v2'],
+    ['mails_urgent_v3', 'mails_normal_v3', 'mails_digest_v3'],
   );
   assert.deepEqual(backend.pushes.map((p) => p.android.priority), ['high', 'high', 'normal']);
   assert.deepEqual(backend.pushes.map((p) => 'color' in p.android.notification), [true, false, false], 'rouge : urgent seulement');

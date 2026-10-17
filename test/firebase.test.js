@@ -69,7 +69,7 @@ test('niveau Firebase : digest, urgent (priorité 5) ou normal', () => {
   assert.equal(firebaseLevel(classification({ priority: 5 })), 'urgent');
   assert.equal(firebaseLevel(classification({ priority: 3 })), 'normal');
   assert.equal(firebaseLevel(classification({ priority: undefined })), 'normal');
-  assert.deepEqual(['urgent', 'normal', 'digest'].map(channelIdFor), ['mails_urgent_v2', 'mails_normal_v2', 'mails_digest_v2']);
+  assert.deepEqual(['urgent', 'normal', 'digest'].map(channelIdFor), ['mails_urgent_v3', 'mails_normal_v3', 'mails_digest_v3']);
 });
 
 test('document de mail : exactement les champs attendus par l’application', () => {
@@ -109,7 +109,7 @@ test('mail : document écrit puis push FCM complet', async () => {
     android: {
       priority: 'high',
       ttl: 6 * 60 * 60 * 1000,
-      notification: { channelId: 'mails_urgent_v2', icon: 'ic_stat_mailalerte', color: '#D8453F' },
+      notification: { channelId: 'mails_urgent_v3', icon: 'ic_stat_mailalerte', color: '#D8453F' },
     },
   });
   assert.deepEqual(backend.pushes.map((p) => p.token), ['token-1', 'token-2']);
@@ -121,7 +121,7 @@ test('push normal : canal v2, haute priorité, icône, durée de vie, et PAS de 
   const { backend, notifier } = setup();
   await notifier.send(message, { type: 'mail', entry: entry() });
   const { android } = backend.pushes[0];
-  assert.equal(android.notification.channelId, 'mails_normal_v2');
+  assert.equal(android.notification.channelId, 'mails_normal_v3');
   assert.equal(android.notification.icon, 'ic_stat_mailalerte');
   assert.ok(!('color' in android.notification), 'le rouge est réservé au niveau urgent');
   assert.equal(android.priority, 'high');
@@ -132,7 +132,7 @@ test('push du résumé : canal v2 « résumé », priorité normale (silencieux)
   const { backend, notifier } = setup();
   await notifier.send(message, { type: 'digest', entries: [entry({ classification: classification({ mode: 'digest', priority: 2 }) })] });
   const { android } = backend.pushes[0];
-  assert.equal(android.notification.channelId, 'mails_digest_v2');
+  assert.equal(android.notification.channelId, 'mails_digest_v3');
   assert.equal(android.notification.icon, 'ic_stat_mailalerte');
   assert.ok(!('color' in android.notification));
   assert.equal(android.priority, 'normal');
@@ -237,7 +237,7 @@ test('résumé : un document par mail, un seul push, sur le canal « résumé »
   assert.equal(backend.mails.get('11'.repeat(16)).level, 'digest');
   assert.equal(backend.pushes.length, 1);
   assert.equal(backend.pushes[0].data.mailId, '22'.repeat(16));
-  assert.equal(backend.pushes[0].android.notification.channelId, 'mails_digest_v2');
+  assert.equal(backend.pushes[0].android.notification.channelId, 'mails_digest_v3');
   assert.deepEqual(backend.pushes[0].notification, { title: '2 nouveaux mails', body: 'Bob, Alice' });
 });
 
